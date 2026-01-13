@@ -25,10 +25,13 @@ class YtdlpWrapper @Inject constructor() {
     suspend fun getVideoInfo(url: String): Result<MediaInfo> =
             withContext(Dispatchers.IO) {
                 try {
-                    Log.d(TAG, "Getting video info for: $url")
+                    Log.d(TAG, "Getting video info...")
 
                     // Create options dict with Android-safe settings
                     // IMPORTANT: Disable all features that use subprocess on Android
+                    // NOTE: SSL certificate verification is disabled for compatibility with
+                    // various video platforms. This is a known trade-off for functionality.
+                    // In production, consider implementing certificate pinning for sensitive operations.
                     val ydlOpts =
                             createOptionsDict(
                                     "quiet" to true,
@@ -36,7 +39,8 @@ class YtdlpWrapper @Inject constructor() {
                                     "extract_flat" to false,
                                     "no_color" to true,
                                     "socket_timeout" to 30,
-                                    // Disable certificate checks
+                                    // SSL certificate verification disabled for platform compatibility
+                                    // WARNING: This reduces security but is required for some platforms
                                     "nocheckcertificate" to true,
                                     "prefer_insecure" to true,
                                     "no_check_certificate" to true,
@@ -220,7 +224,7 @@ class YtdlpWrapper @Inject constructor() {
                     try {
                         Log.d(
                                 TAG,
-                                "Starting download attempt ${attempt + 1}/$maxRetries: $url to $outputPath"
+                                "Starting download attempt ${attempt + 1}/$maxRetries"
                         )
 
                         // Import progress hook module
@@ -315,7 +319,7 @@ class YtdlpWrapper @Inject constructor() {
                             } catch (e: Exception) {
                                 Log.e(TAG, "Progress read error", e)
                             }
-                            kotlinx.coroutines.delay(200) // Poll every 200ms for responsive UI
+                            kotlinx.coroutines.delay(500) // Poll every 500ms for balanced UI responsiveness
                         }
 
                         // Wait for download thread to finish

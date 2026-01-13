@@ -22,7 +22,13 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "mediagrab_database"
-        ).build()
+        )
+            // Add all migrations for safe database upgrades
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+            // Fallback to destructive migration only if no migration path exists
+            // This prevents crashes but loses data - use with caution
+            .fallbackToDestructiveMigration()
+            .build()
     }
     
     @Provides

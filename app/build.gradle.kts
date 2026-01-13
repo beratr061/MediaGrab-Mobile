@@ -74,7 +74,8 @@ android {
 // Chaquopy configuration
 chaquopy {
     defaultConfig {
-        version = "3.12"
+        // Python 3.9 - good balance between compatibility and features
+        version = "3.9"
         
         pip {
             install("yt-dlp")

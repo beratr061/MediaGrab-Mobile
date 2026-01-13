@@ -10,9 +10,11 @@ import com.berat.mediagrab.data.model.MediaInfo
 import com.berat.mediagrab.data.repository.DownloadRepository
 import com.berat.mediagrab.python.YtdlpWrapper
 import com.berat.mediagrab.util.FFmpegExecutor
+import com.berat.mediagrab.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +32,8 @@ data class HomeUiState(
         val downloadSpeed: Long? = null, // bytes per second
         val statusMessage: String? = null,
         val errorMessage: String? = null,
-        val mediaInfo: MediaInfo? = null
+        val mediaInfo: MediaInfo? = null,
+        val wifiOnlyEnabled: Boolean = false
 )
 
 @HiltViewModel
@@ -54,7 +57,9 @@ constructor(
         private val tag = "HomeViewModel"
 
         private var currentDownloadId: Long? = null
-        private var fetchJob: kotlinx.coroutines.Job? = null
+        private var fetchJob: Job? = null
+        private var downloadJob: Job? = null
+        private var isCancelled = false
 
         fun updateUrl(url: String) {
                 _uiState.value =
@@ -125,14 +130,60 @@ constructor(
                 _uiState.value = _uiState.value.copy(selectedQuality = quality)
         }
 
+        fun setWifiOnly(enabled: Boolean) {
+                _uiState.value = _uiState.value.copy(wifiOnlyEnabled = enabled)
+        }
+
+        fun cancelDownload() {
+                Log.d(tag, "Cancelling download...")
+                isCancelled = true
+                downloadJob?.cancel()
+                downloadJob = null
+                
+                currentDownloadId?.let { id ->
+                        viewModelScope.launch {
+                                downloadRepository.markFailed(id, "İndirme iptal edildi")
+                        }
+                }
+                currentDownloadId = null
+                
+                _uiState.value = _uiState.value.copy(
+                        isDownloading = false,
+                        isLoading = false,
+                        downloadProgress = 0f,
+                        statusMessage = "İndirme iptal edildi",
+                        errorMessage = null
+                )
+        }
+
         fun startDownload() {
                 val url = _uiState.value.url
                 if (url.isBlank()) return
 
+                // Check network availability
+                val context = getApplication<Application>()
+                if (!NetworkUtils.isNetworkAvailable(context)) {
+                        _uiState.value = _uiState.value.copy(
+                                errorMessage = "İnternet bağlantısı yok"
+                        )
+                        return
+                }
+
+                // Check WiFi-only setting
+                if (_uiState.value.wifiOnlyEnabled && !NetworkUtils.isWifiConnected(context)) {
+                        _uiState.value = _uiState.value.copy(
+                                errorMessage = "WiFi bağlantısı gerekli (Ayarlardan değiştirilebilir)"
+                        )
+                        return
+                }
+
                 val format = _uiState.value.selectedFormat
                 val quality = _uiState.value.selectedQuality
 
-                viewModelScope.launch {
+                // Reset cancellation flag
+                isCancelled = false
+
+                downloadJob = viewModelScope.launch {
                         _uiState.value =
                                 _uiState.value.copy(
                                         isLoading = true,
@@ -143,12 +194,16 @@ constructor(
                                 )
 
                         try {
+                                // Check if cancelled
+                                if (isCancelled) return@launch
+
                                 // First fetch video info
-                                Log.d(tag, "Fetching video info for: $url")
+                                Log.d(tag, "Fetching video info for URL")
                                 val infoResult = ytdlpWrapper.getVideoInfo(url)
 
                                 infoResult.fold(
                                         onSuccess = { mediaInfo ->
+                                                if (isCancelled) return@fold
                                                 Log.d(tag, "Video info fetched: ${mediaInfo.title}")
                                                 _uiState.value =
                                                         _uiState.value.copy(

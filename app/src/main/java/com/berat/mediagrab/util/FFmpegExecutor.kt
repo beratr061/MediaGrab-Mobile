@@ -3,8 +3,10 @@ package com.berat.mediagrab.util
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Helper class to execute FFmpeg commands using a bundled FFmpeg binary. Supports all codecs
@@ -16,6 +18,7 @@ import kotlinx.coroutines.withContext
 object FFmpegExecutor {
     private const val TAG = "FFmpegExecutor"
     private const val FFMPEG_LIB_NAME = "libffmpeg.so"
+    private const val DEFAULT_TIMEOUT_MS = 10 * 60 * 1000L // 10 minutes default timeout
 
     private var ffmpegPath: String? = null
     private var isInitialized = false
@@ -69,6 +72,7 @@ object FFmpegExecutor {
      * @param outputPath Path for merged output
      * @param onProgress Progress callback (0.0 to 1.0)
      * @param context Application context for temp directory (optional, uses outputPath parent if null)
+     * @param timeoutMs Timeout in milliseconds (default: 10 minutes)
      * @return Result with output path on success
      */
     suspend fun mergeVideoAudio(
@@ -76,7 +80,8 @@ object FFmpegExecutor {
             audioPath: String,
             outputPath: String,
             onProgress: ((Float) -> Unit)? = null,
-            context: android.content.Context? = null
+            context: android.content.Context? = null,
+            timeoutMs: Long = DEFAULT_TIMEOUT_MS
     ): Result<String> =
             withContext(Dispatchers.IO) {
                 if (!isInitialized || ffmpegPath == null) {
@@ -86,7 +91,7 @@ object FFmpegExecutor {
                 }
 
                 try {
-                    Log.d(TAG, "Starting merge: video=$videoPath, audio=$audioPath -> $outputPath")
+                    Log.d(TAG, "Starting merge: video=$videoPath, audio=$audioPath -> $outputPath (timeout: ${timeoutMs}ms)")
 
                     // Validate input files
                     if (!File(videoPath).exists()) {
@@ -156,16 +161,32 @@ object FFmpegExecutor {
 
                     val process = processBuilder.start()
 
-                    // Read output for logging and progress
-                    val output = StringBuilder()
-                    process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { line ->
-                            output.appendLine(line)
-                            Log.v(TAG, "FFmpeg: $line")
+                    // Execute with timeout
+                    val result = withTimeoutOrNull(timeoutMs) {
+                        // Read output for logging and progress
+                        val output = StringBuilder()
+                        process.inputStream.bufferedReader().useLines { lines ->
+                            lines.forEach { line ->
+                                output.appendLine(line)
+                                Log.v(TAG, "FFmpeg: $line")
+                            }
                         }
+
+                        val exitCode = process.waitFor()
+                        Pair(exitCode, output.toString())
                     }
 
-                    val exitCode = process.waitFor()
+                    if (result == null) {
+                        // Timeout occurred
+                        process.destroyForcibly()
+                        Log.e(TAG, "FFmpeg merge timed out after ${timeoutMs}ms")
+                        tempOutputFile.delete()
+                        return@withContext Result.failure(
+                            Exception("FFmpeg merge timed out after ${timeoutMs / 1000} seconds")
+                        )
+                    }
+
+                    val (exitCode, output) = result
 
                     if (exitCode == 0 && tempOutputFile.exists() && tempOutputFile.length() > 0) {
                         Log.d(TAG, "FFmpeg merge successful, copying to final destination...")
@@ -191,8 +212,8 @@ object FFmpegExecutor {
                             
                             // Use streams for reliable copying on Android
                             tempOutputFile.inputStream().use { input ->
-                                finalOutputFile.outputStream().use { output ->
-                                    input.copyTo(output)
+                                finalOutputFile.outputStream().use { outputStream ->
+                                    input.copyTo(outputStream)
                                 }
                             }
                             
@@ -224,13 +245,14 @@ object FFmpegExecutor {
             }
 
     /**
-     * Execute a custom FFmpeg command.
+     * Execute a custom FFmpeg command with timeout.
      *
      * @param args FFmpeg arguments (without ffmpeg binary path)
+     * @param timeoutMs Timeout in milliseconds (default: 10 minutes)
      * @return Result with output on success
      */
     @Suppress("unused")
-    suspend fun execute(vararg args: String): Result<String> =
+    suspend fun execute(vararg args: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Result<String> =
             withContext(Dispatchers.IO) {
                 if (!isInitialized || ffmpegPath == null) {
                     return@withContext Result.failure(
@@ -240,13 +262,26 @@ object FFmpegExecutor {
 
                 try {
                     val command = listOf(ffmpegPath!!) + args.toList()
-                    Log.d(TAG, "Executing: ${command.joinToString(" ")}")
+                    Log.d(TAG, "Executing: ${command.joinToString(" ")} (timeout: ${timeoutMs}ms)")
 
                     val processBuilder = ProcessBuilder(command).redirectErrorStream(true)
 
                     val process = processBuilder.start()
-                    val output = process.inputStream.bufferedReader().readText()
-                    val exitCode = process.waitFor()
+                    
+                    val result = withTimeoutOrNull(timeoutMs) {
+                        val output = process.inputStream.bufferedReader().readText()
+                        val exitCode = process.waitFor()
+                        Pair(exitCode, output)
+                    }
+
+                    if (result == null) {
+                        process.destroyForcibly()
+                        return@withContext Result.failure(
+                            Exception("FFmpeg execution timed out after ${timeoutMs / 1000} seconds")
+                        )
+                    }
+
+                    val (exitCode, output) = result
 
                     if (exitCode == 0) {
                         Result.success(output)
