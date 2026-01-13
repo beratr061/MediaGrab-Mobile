@@ -1,11 +1,14 @@
 package com.berat.mediagrab.python
 
+import android.content.Context
 import android.util.Log
 import com.chaquo.python.PyException
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.berat.mediagrab.data.model.MediaInfo
 import com.berat.mediagrab.data.model.VideoQuality
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -13,13 +16,33 @@ import kotlinx.coroutines.withContext
 
 /** Wrapper class for yt-dlp Python library Uses Chaquopy to execute Python code on Android */
 @Singleton
-class YtdlpWrapper @Inject constructor() {
+class YtdlpWrapper @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
 
     companion object {
         private const val TAG = "YtdlpWrapper"
     }
     private val py: Python by lazy { Python.getInstance() }
     private val ytdlp: PyObject by lazy { py.getModule("yt_dlp") }
+    
+    // Cookie file path - copied from assets to internal storage
+    private val cookieFile: File by lazy {
+        val file = File(context.filesDir, "cookies.txt")
+        if (!file.exists()) {
+            try {
+                context.assets.open("cookies.txt").use { input ->
+                    file.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.d(TAG, "Cookie file copied to: ${file.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to copy cookie file", e)
+            }
+        }
+        file
+    }
 
     /** Extract video information from URL */
     suspend fun getVideoInfo(url: String): Result<MediaInfo> =
@@ -44,6 +67,8 @@ class YtdlpWrapper @Inject constructor() {
                                     "nocheckcertificate" to true,
                                     "prefer_insecure" to true,
                                     "no_check_certificate" to true,
+                                    // Cookie file for authentication
+                                    "cookiefile" to cookieFile.absolutePath,
                                     // Disable features that cause subprocess issues on Android
                                     "noprogress" to true,
                                     // Disable post-processing (ffmpeg uses subprocess)
@@ -250,6 +275,8 @@ class YtdlpWrapper @Inject constructor() {
                                         "http_chunk_size" to 10485760, // 10MB chunks
                                         "extractor_retries" to 5,
                                         "file_access_retries" to 5,
+                                        // Cookie file for authentication
+                                        "cookiefile" to cookieFile.absolutePath,
                                         // Progress hooks for tracking
                                         "progress_hooks" to progressHooksList,
                                         // Android-safe settings (no ffmpeg - using pre-merged

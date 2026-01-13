@@ -930,4 +930,8 @@ constructor(
         fun deleteDownload(downloadId: Long) {
                 viewModelScope.launch { downloadRepository.deleteDownload(downloadId) }
         }
+
+        fun clearAllDownloads() {
+                viewModelScope.launch { downloadRepository.deleteAllDownloads() }
+        }
 }

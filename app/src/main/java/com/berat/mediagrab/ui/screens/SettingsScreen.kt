@@ -5,11 +5,13 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,383 +25,422 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.berat.mediagrab.data.DownloadQuality
-import com.berat.mediagrab.data.VideoFormat
-import com.berat.mediagrab.ui.theme.Anthracite
 import com.berat.mediagrab.ui.theme.Primary
 import com.berat.mediagrab.ui.viewmodel.SettingsViewModel
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onNavigateBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
-    // Collect settings
-    val downloadQuality by viewModel.downloadQuality.collectAsState()
-    val preferredFormat by viewModel.preferredFormat.collectAsState()
     val darkMode by viewModel.darkMode.collectAsState()
-    val autoDownload by viewModel.autoDownload.collectAsState()
-    val showNotifications by viewModel.showNotifications.collectAsState()
-    val wifiOnly by viewModel.wifiOnly.collectAsState()
-    val autoClearCache by viewModel.autoClearCache.collectAsState()
+
+    // Cache size calculation
+    var cacheSize by remember { mutableStateOf("0 MB") }
+    LaunchedEffect(Unit) {
+        val size = calculateCacheSize(context.cacheDir)
+        cacheSize = formatSize(size)
+    }
 
     // Dialog states
-    var showQualityDialog by remember { mutableStateOf(false) }
-    var showFormatDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showClearCacheDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-            topBar = {
-                TopAppBar(
-                        title = { Text("Ayarlar", fontWeight = FontWeight.Bold) },
-                        navigationIcon = {
-                            IconButton(onClick = onNavigateBack) {
-                                Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Geri",
-                                        tint = Color.White
-                                )
-                            }
-                        },
-                        colors =
-                                TopAppBarDefaults.topAppBarColors(
-                                        containerColor = Anthracite,
-                                        titleContentColor = Color.White
-                                )
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "Ayarlar",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(40.dp)
+                            .clip(CircleShape)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
                 )
-            }
+            )
+        }
     ) { paddingValues ->
-        LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // Download Settings Section
-            item {
-                SettingsSectionHeader(icon = Icons.Default.Download, title = "İndirme Ayarları")
-            }
-
-            item {
-                SettingsClickableItem(
-                        icon = Icons.Default.HighQuality,
-                        title = "İndirme Kalitesi",
-                        subtitle = downloadQuality.displayName,
-                        onClick = { showQualityDialog = true }
-                )
-            }
-
-            item {
-                SettingsClickableItem(
-                        icon = Icons.Default.VideoFile,
-                        title = "Tercih Edilen Format",
-                        subtitle = preferredFormat.displayName,
-                        onClick = { showFormatDialog = true }
-                )
-            }
-
-            item {
-                SettingsSwitchItem(
-                        icon = Icons.Default.Wifi,
-                        title = "Sadece WiFi'de İndir",
-                        subtitle = "Mobil veri kullanmadan indir",
-                        checked = wifiOnly,
-                        onCheckedChange = { viewModel.setWifiOnly(it) }
-                )
-            }
-
-            item {
-                SettingsSwitchItem(
-                        icon = Icons.Default.PlayArrow,
-                        title = "Otomatik İndirme",
-                        subtitle = "URL yapıştırıldığında otomatik indir",
-                        checked = autoDownload,
-                        onCheckedChange = { viewModel.setAutoDownload(it) }
-                )
-            }
-
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-
-            // Notification Settings Section
-            item {
-                SettingsSectionHeader(icon = Icons.Default.Notifications, title = "Bildirimler")
-            }
-
-            item {
-                SettingsSwitchItem(
-                        icon = Icons.Default.NotificationsActive,
-                        title = "Bildirimleri Göster",
-                        subtitle = "İndirme durumu bildirimleri",
-                        checked = showNotifications,
-                        onCheckedChange = { viewModel.setShowNotifications(it) }
-                )
-            }
-
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-
-            // Appearance Settings Section
-            item { SettingsSectionHeader(icon = Icons.Default.Palette, title = "Görünüm") }
-
-            item {
-                SettingsSwitchItem(
-                        icon = Icons.Default.DarkMode,
+            // Appearance Section
+            SettingsSection(title = "GÖRÜNÜM") {
+                SettingsCard {
+                    SettingsSwitchRow(
+                        icon = Icons.Outlined.DarkMode,
                         title = "Karanlık Mod",
-                        subtitle = "Koyu tema kullan",
                         checked = darkMode,
                         onCheckedChange = { viewModel.setDarkMode(it) }
-                )
+                    )
+                }
             }
 
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-
-            // Storage Settings Section
-            item { SettingsSectionHeader(icon = Icons.Default.Storage, title = "Depolama") }
-
-            item {
-                SettingsSwitchItem(
-                        icon = Icons.Default.CleaningServices,
-                        title = "Otomatik Önbellek Temizleme",
-                        subtitle = "Uygulama kapatılınca önbelleği temizle",
-                        checked = autoClearCache,
-                        onCheckedChange = { viewModel.setAutoClearCache(it) }
-                )
-            }
-
-            item {
-                SettingsClickableItem(
-                        icon = Icons.Default.DeleteSweep,
+            // Storage Section
+            SettingsSection(title = "DEPOLAMA") {
+                SettingsCard {
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.Delete,
                         title = "Önbelleği Temizle",
-                        subtitle = "Geçici dosyaları sil",
+                        subtitle = "$cacheSize kullanılıyor",
+                        onClick = { showClearCacheDialog = true }
+                    )
+                    SettingsDivider()
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.Folder,
+                        title = "İndirme Konumu",
+                        subtitle = "/Internal/MediaGrab",
                         onClick = {
-                            context.cacheDir.deleteRecursively()
-                            Toast.makeText(context, "Önbellek temizlendi", Toast.LENGTH_SHORT)
-                                    .show()
+                            Toast.makeText(context, "Yakında", Toast.LENGTH_SHORT).show()
                         }
-                )
+                    )
+                }
             }
 
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-
-            // About Section
-            item { SettingsSectionHeader(icon = Icons.Default.Info, title = "Hakkında") }
-
-            item {
-                SettingsClickableItem(
-                        icon = Icons.Default.Info,
-                        title = "Uygulama Hakkında",
-                        subtitle = "MediaGrab v1.0.0",
-                        onClick = { showAboutDialog = true }
-                )
-            }
-
-            item {
-                SettingsClickableItem(
-                        icon = Icons.Default.Code,
-                        title = "GitHub",
-                        subtitle = "Kaynak koda göz at",
+            // Community & Info Section
+            SettingsSection(title = "TOPLULUK & BİLGİ") {
+                SettingsCard {
+                    SettingsLinkRow(
+                        icon = Icons.Outlined.Code,
+                        title = "Kaynak Kod",
+                        trailingText = "GitHub",
                         onClick = {
-                            val intent =
-                                    Intent(
-                                            Intent.ACTION_VIEW,
-                                            "https://github.com/beratr061/MediaGrab-Mobile".toUri()
-                                    )
+                            val intent = Intent(
+                                Intent.ACTION_VIEW,
+                                "https://github.com/AhmetKBY/MediaGrab-Mobile".toUri()
+                            )
                             context.startActivity(intent)
                         }
-                )
+                    )
+                    SettingsDivider()
+                    SettingsClickableRow(
+                        icon = Icons.Outlined.Info,
+                        title = "MediaGrab Hakkında",
+                        subtitle = "Sürüm 2.0.1",
+                        onClick = { showAboutDialog = true }
+                    )
+                }
             }
 
-            item {
-                SettingsClickableItem(
-                        icon = Icons.Default.Star,
-                        title = "Değerlendir",
-                        subtitle = "Play Store'da puanla",
-                        onClick = {
-                            Toast.makeText(context, "Yakında Play Store'da!", Toast.LENGTH_SHORT)
-                                    .show()
-                        }
-                )
-            }
+            // Footer
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Sevgiyle yapıldı. © 2023 MediaGrab",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
-    // Quality Selection Dialog
-    if (showQualityDialog) {
-        SelectionDialog(
-                title = "İndirme Kalitesi",
-                options = DownloadQuality.entries.map { it.displayName },
-                selectedIndex = DownloadQuality.entries.indexOf(downloadQuality),
-                onSelect = { index ->
-                    viewModel.setDownloadQuality(DownloadQuality.entries[index])
-                    showQualityDialog = false
-                },
-                onDismiss = { showQualityDialog = false }
-        )
-    }
-
-    // Format Selection Dialog
-    if (showFormatDialog) {
-        SelectionDialog(
-                title = "Tercih Edilen Format",
-                options = VideoFormat.entries.map { it.displayName },
-                selectedIndex = VideoFormat.entries.indexOf(preferredFormat),
-                onSelect = { index ->
-                    viewModel.setPreferredFormat(VideoFormat.entries[index])
-                    showFormatDialog = false
-                },
-                onDismiss = { showFormatDialog = false }
+    // Clear Cache Dialog
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            icon = {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text("Önbelleği Temizle", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text("Tüm geçici dosyalar silinecek. Emin misiniz?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        context.cacheDir.deleteRecursively()
+                        cacheSize = "0 MB"
+                        showClearCacheDialog = false
+                        Toast.makeText(context, "Önbellek temizlendi", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Temizle", color = Primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCacheDialog = false }) {
+                    Text("İptal")
+                }
+            }
         )
     }
 
     // About Dialog
     if (showAboutDialog) {
         AlertDialog(
-                onDismissRequest = { showAboutDialog = false },
-                icon = {
+            onDismissRequest = { showAboutDialog = false },
+            icon = {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Primary.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                            Icons.Default.Download,
-                            contentDescription = null,
-                            tint = Primary,
-                            modifier = Modifier.size(48.dp)
+                        Icons.Outlined.Download,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(32.dp)
                     )
-                },
-                title = { Text("MediaGrab", fontWeight = FontWeight.Bold) },
-                text = {
-                    Column {
-                        Text("Versiyon: 1.0.0")
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("YouTube, TikTok, Instagram ve daha fazla platformdan video indirin.")
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("yt-dlp ile güçlendirilmiştir.", fontSize = 12.sp, color = Color.Gray)
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showAboutDialog = false }) { Text("Tamam") }
                 }
+            },
+            title = {
+                Text("MediaGrab", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Sürüm 2.0.1")
+                    Text("YouTube, TikTok, Instagram ve daha fazla platformdan video indirin.")
+                    Text(
+                        "yt-dlp ile güçlendirilmiştir",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("Tamam", color = Primary)
+                }
+            }
         )
     }
 }
 
 @Composable
-fun SettingsSectionHeader(icon: ImageVector, title: String) {
+private fun SettingsSection(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.outline,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+        content()
+    }
+}
+
+@Composable
+private fun SettingsCard(
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    icon: ImageVector,
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
     Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(vertical = 8.dp)
-    ) {
-        Icon(icon, contentDescription = null, tint = Primary, modifier = Modifier.size(20.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Primary)
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            SettingsIcon(icon)
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Primary,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+            )
+        )
     }
 }
 
 @Composable
-fun SettingsClickableItem(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    Surface(
-            modifier =
-                    Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(onClick = onClick),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+private fun SettingsClickableRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.weight(1f)
         ) {
-            Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+            SettingsIcon(icon)
+            Column {
+                Text(
+                    text = title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
+        }
+        Icon(
+            Icons.Outlined.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+private fun SettingsLinkRow(
+    icon: ImageVector,
+    title: String,
+    trailingText: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            SettingsIcon(icon)
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = trailingText,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.outline
+            )
             Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.outline
+                Icons.Outlined.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(20.dp)
             )
         }
     }
 }
 
 @Composable
-fun SettingsSwitchItem(
-        icon: ImageVector,
-        title: String,
-        subtitle: String,
-        checked: Boolean,
-        onCheckedChange: (Boolean) -> Unit
-) {
-    Surface(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+private fun SettingsIcon(icon: ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Primary.copy(alpha = 0.1f)),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
-            }
-            Switch(
-                    checked = checked,
-                    onCheckedChange = onCheckedChange,
-                    colors =
-                            SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = Primary
-                            )
-            )
-        }
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Primary,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
 @Composable
-fun SelectionDialog(
-        title: String,
-        options: List<String>,
-        selectedIndex: Int,
-        onSelect: (Int) -> Unit,
-        onDismiss: () -> Unit
-) {
-    AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(title, fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    options.forEachIndexed { index, option ->
-                        Row(
-                                modifier =
-                                        Modifier.fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .clickable { onSelect(index) }
-                                                .background(
-                                                        if (index == selectedIndex)
-                                                                Primary.copy(alpha = 0.2f)
-                                                        else Color.Transparent
-                                                )
-                                                .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                    selected = index == selectedIndex,
-                                    onClick = { onSelect(index) },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Primary)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(option)
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("İptal") } }
+private fun SettingsDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 72.dp),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
     )
+}
+
+private fun calculateCacheSize(cacheDir: File): Long {
+    return cacheDir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+}
+
+private fun formatSize(size: Long): String {
+    return when {
+        size < 1024 -> "$size B"
+        size < 1024 * 1024 -> "${size / 1024} KB"
+        size < 1024 * 1024 * 1024 -> "${size / (1024 * 1024)} MB"
+        else -> "${size / (1024 * 1024 * 1024)} GB"
+    }
 }

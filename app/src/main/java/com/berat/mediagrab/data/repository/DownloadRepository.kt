@@ -28,6 +28,8 @@ class DownloadRepository @Inject constructor(private val downloadDao: DownloadDa
 
     suspend fun delete(download: DownloadEntity) = downloadDao.delete(download)
 
+    suspend fun deleteAllDownloads() = downloadDao.deleteAll()
+
     suspend fun updateProgress(id: Long, progress: Float) {
         downloadDao.updateProgress(id, DownloadEntity.STATUS_DOWNLOADING, progress)
     }

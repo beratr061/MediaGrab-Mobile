@@ -3,6 +3,7 @@ package com.berat.mediagrab.ui.screens
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,7 +12,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,14 +31,38 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.berat.mediagrab.data.database.DownloadEntity
-import com.berat.mediagrab.ui.theme.Anthracite
 import com.berat.mediagrab.ui.theme.Primary
 import com.berat.mediagrab.ui.viewmodel.DownloadsViewModel
 import com.berat.mediagrab.util.VideoMetadataExtractor
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.Locale
+
+private fun formatDateDownloads(timestamp: Long): String {
+    return SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("tr", "TR")).format(Date(timestamp))
+}
+
+private fun getRelativeTimeDownloads(timestamp: Long): String {
+    val diff = System.currentTimeMillis() - timestamp
+    val minutes = diff / 60000
+    val hours = minutes / 60
+    val days = hours / 24
+    return when {
+        minutes < 1 -> "Az önce"
+        minutes < 60 -> "$minutes dk önce"
+        hours < 24 -> "$hours saat önce"
+        days == 1L -> "Dün"
+        days < 7 -> "$days gün önce"
+        else -> formatDateDownloads(timestamp)
+    }
+}
+
+private fun formatFileSizeDownloads(size: Long): String = when {
+    size < 1024 -> "$size B"
+    size < 1024 * 1024 -> "${size / 1024} KB"
+    size < 1024 * 1024 * 1024 -> "${size / (1024 * 1024)} MB"
+    else -> String.format(Locale.US, "%.1f GB", size / (1024.0 * 1024.0 * 1024.0))
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,455 +71,627 @@ fun DownloadsScreen(onNavigateBack: () -> Unit, viewModel: DownloadsViewModel = 
     val context = LocalContext.current
     var selectedDownload by remember { mutableStateOf<DownloadEntity?>(null) }
     var showDeleteDialog by remember { mutableStateOf<DownloadEntity?>(null) }
+    var showClearAllDialog by remember { mutableStateOf(false) }
+    val activeDownloads = downloads.filter { it.isDownloading }
+    val historyDownloads = downloads.filter { !it.isDownloading }
 
     Scaffold(
-            topBar = {
-                TopAppBar(
-                        title = { Text("Dosyalarım", fontWeight = FontWeight.Bold) },
-                        navigationIcon = {
-                            IconButton(onClick = onNavigateBack) {
-                                Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Geri",
-                                        tint = Color.White
-                                )
-                            }
-                        },
-                        colors =
-                                TopAppBarDefaults.topAppBarColors(
-                                        containerColor = Anthracite,
-                                        titleContentColor = Color.White
-                                )
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("İndirmeler", fontWeight = FontWeight.SemiBold, fontSize = 17.sp) },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(40.dp)
+                            .clip(CircleShape)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Geri", Modifier.size(22.dp))
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
                 )
-            }
+            )
+        }
     ) { paddingValues ->
         if (downloads.isEmpty()) {
-            // Empty state
-            EmptyDownloadsState(modifier = Modifier.padding(paddingValues))
+            DownloadsEmptyState(Modifier.padding(paddingValues))
         } else {
             LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(paddingValues),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                items(downloads, key = { it.id }) { download ->
-                    DownloadItem(
+                if (activeDownloads.isNotEmpty()) {
+                    item {
+                        DownloadsSectionHeader(
+                            title = "AKTİF İNDİRMELER",
+                            count = activeDownloads.size
+                        )
+                    }
+                    item {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            activeDownloads.forEach { download ->
+                                ActiveDownloadCard(download)
+                            }
+                        }
+                    }
+                    item {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+                if (historyDownloads.isNotEmpty()) {
+                    item {
+                        DownloadsSectionHeaderWithAction(
+                            title = "GEÇMİŞ",
+                            actionText = "Tümünü Temizle",
+                            onActionClick = { showClearAllDialog = true }
+                        )
+                    }
+                    items(historyDownloads, key = { it.id }) { download ->
+                        DownloadHistoryItem(
                             download = download,
-                            onPlayClick = {
+                            onItemClick = {
                                 download.filePath?.let { path ->
                                     val file = File(path)
                                     if (file.exists()) {
                                         try {
-                                            val uri =
-                                                    FileProvider.getUriForFile(
-                                                            context,
-                                                            "${context.packageName}.fileprovider",
-                                                            file
-                                                    )
-                                            val intent =
-                                                    Intent(Intent.ACTION_VIEW).apply {
-                                                        setDataAndType(uri, "video/*")
-                                                        addFlags(
-                                                                Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                        )
-                                                    }
-                                            context.startActivity(intent)
+                                            val uri = FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.fileprovider",
+                                                file
+                                            )
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(uri, "video/*")
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                            )
                                         } catch (_: Exception) {
-                                            Toast.makeText(
-                                                            context,
-                                                            "Dosya açılamadı",
-                                                            Toast.LENGTH_SHORT
-                                                    )
-                                                    .show()
+                                            Toast.makeText(context, "Dosya açılamadı", Toast.LENGTH_SHORT).show()
                                         }
                                     } else {
-                                        Toast.makeText(
-                                                        context,
-                                                        "Dosya bulunamadı",
-                                                        Toast.LENGTH_SHORT
-                                                )
-                                                .show()
+                                        Toast.makeText(context, "Dosya bulunamadı", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
-                            onInfoClick = { selectedDownload = download },
+                            onMoreClick = { selectedDownload = download },
                             onDeleteClick = { showDeleteDialog = download }
-                    )
+                        )
+                    }
                 }
             }
         }
     }
 
-    // Info Dialog
     selectedDownload?.let { download ->
-        DownloadInfoDialog(download = download, onDismiss = { selectedDownload = null })
+        DownloadInfoDialog(download) { selectedDownload = null }
     }
 
-    // Delete Confirmation Dialog
     showDeleteDialog?.let { download ->
         AlertDialog(
-                onDismissRequest = { showDeleteDialog = null },
-                title = { Text("Silmek istediğinize emin misiniz?") },
-                text = { Text("\"${download.title}\" silinecek.") },
-                confirmButton = {
-                    TextButton(
-                            onClick = {
-                                viewModel.deleteDownload(download)
-                                showDeleteDialog = null
-                            }
-                    ) { Text("Sil", color = Color.Red) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteDialog = null }) { Text("İptal") }
+            onDismissRequest = { showDeleteDialog = null },
+            icon = {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = { Text("Silmek istediğinize emin misiniz?", fontWeight = FontWeight.Bold) },
+            text = { Text("\"${download.title}\" silinecek.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteDownload(download)
+                    showDeleteDialog = null
+                }) {
+                    Text("Sil", color = Primary)
                 }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = null }) {
+                    Text("İptal")
+                }
+            }
+        )
+    }
+
+    if (showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            icon = {
+                Icon(
+                    Icons.Outlined.DeleteSweep,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = { Text("Tüm geçmişi temizle", fontWeight = FontWeight.Bold) },
+            text = { Text("Tüm indirme geçmişi silinecek. Bu işlem geri alınamaz.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    historyDownloads.forEach { viewModel.deleteDownload(it) }
+                    showClearAllDialog = false
+                }) {
+                    Text("Temizle", color = Primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllDialog = false }) {
+                    Text("İptal")
+                }
+            }
         )
     }
 }
 
 @Composable
-private fun EmptyDownloadsState(modifier: Modifier = Modifier) {
-    Column(
-            modifier = modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+private fun DownloadsSectionHeader(title: String, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-                imageVector = Icons.Default.FolderOpen,
-                contentDescription = null,
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
         Text(
-                "Henüz indirme yok",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            text = title,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.outline,
+            letterSpacing = 1.sp
         )
+        Box(
+            modifier = Modifier
+                .background(Primary.copy(alpha = 0.1f), RoundedCornerShape(50))
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = count.toString(),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Primary
+            )
+        }
+    }
+}
 
-        Spacer(modifier = Modifier.height(8.dp))
-
+@Composable
+private fun DownloadsSectionHeaderWithAction(
+    title: String,
+    actionText: String,
+    onActionClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(
-                "İndirdiğiniz videolar burada görünecek",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.outline
+            text = title,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.outline,
+            letterSpacing = 1.sp
+        )
+        Text(
+            text = actionText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primary,
+            modifier = Modifier.clickable { onActionClick() }
         )
     }
 }
 
 @Composable
-private fun DownloadItem(
-        download: DownloadEntity,
-        onPlayClick: () -> Unit,
-        onInfoClick: () -> Unit,
-        onDeleteClick: () -> Unit
-) {
-    Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors =
-                    CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+private fun ActiveDownloadCard(download: DownloadEntity) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        )
     ) {
         Row(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Thumbnail
             Box(
-                    modifier =
-                            Modifier.size(80.dp, 60.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .clickable(enabled = download.isCompleted) { onPlayClick() },
-                    contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface)
             ) {
-                if (download.thumbnail != null) {
+                download.thumbnail?.let {
                     AsyncImage(
-                            model = download.thumbnail,
-                            contentDescription = download.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
+                        model = it,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
                 }
-
-                // Play overlay for completed downloads
-                if (download.isCompleted) {
-                    Box(
-                            modifier =
-                                    Modifier.size(32.dp)
-                                            .background(Primary.copy(alpha = 0.9f), CircleShape),
-                            contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Oynat",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                // Status overlay for non-completed
-                if (download.isDownloading) {
-                    CircularProgressIndicator(
-                            progress = { download.progress },
-                            modifier = Modifier.size(32.dp),
-                            color = Primary,
-                            strokeWidth = 3.dp
-                    )
-                }
-
-                if (download.isFailed) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                            imageVector = Icons.Default.Error,
-                            contentDescription = "Hata",
-                            tint = Color.Red,
-                            modifier = Modifier.size(32.dp)
+                        Icons.Outlined.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = Color.White
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Info
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .align(Alignment.CenterVertically),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Text(
-                        download.title,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
+                    text = download.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Basic info row
                 Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Duration
+                    Text(
+                        text = "${(download.progress * 100).toInt()}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Text(
+                        text = "İndiriliyor...",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Primary
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { download.progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = Primary,
+                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                )
+            }
+            IconButton(
+                onClick = {},
+                modifier = Modifier
+                    .size(32.dp)
+                    .align(Alignment.CenterVertically)
+                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+            ) {
+                Icon(
+                    Icons.Outlined.Pause,
+                    contentDescription = "Duraklat",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadHistoryItem(
+    download: DownloadEntity,
+    onItemClick: () -> Unit,
+    onMoreClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    val isFailed = download.isFailed
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !isFailed) { onItemClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    if (isFailed) Color(0xFF7F1D1D).copy(alpha = 0.2f)
+                    else MaterialTheme.colorScheme.surface
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            when {
+                isFailed -> Icon(
+                    Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = Color(0xFFEF4444)
+                )
+                download.thumbnail != null -> {
+                    AsyncImage(
+                        model = download.thumbnail,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                     if (download.formattedDuration.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                    imageVector = Icons.Default.Schedule,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(12.dp),
-                                    tint = MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(2.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
                             Text(
-                                    download.formattedDuration,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.outline
+                                text = download.formattedDuration,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White
                             )
                         }
                     }
-
-                    // Quality
+                }
+                else -> Icon(
+                    Icons.Outlined.MusicNote,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = if (isFailed) "Başarısız: ${download.title}" else download.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isFailed) Color(0xFFF87171) else MaterialTheme.colorScheme.onSurface
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isFailed) {
                     Text(
-                            download.quality.uppercase(),
+                        text = download.errorMessage ?: "Hata",
+                        fontSize = 12.sp,
+                        color = Color(0xFFF87171).copy(alpha = 0.7f)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = download.format.uppercase(),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Primary,
-                            modifier =
-                                    Modifier.background(
-                                                    Primary.copy(alpha = 0.1f),
-                                                    RoundedCornerShape(4.dp)
-                                            )
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-
-                    // Format
-                    Text(
-                            download.format.uppercase(),
-                            fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.outline
-                    )
-                }
-
-                // File size
-                download.fileSize?.let { size ->
-                    if (size > 0) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                                formatFileSize(size),
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.outline
                         )
                     }
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Actions
-            Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // Info button
-                IconButton(onClick = onInfoClick, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Detaylar",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                    download.fileSize?.let { fileSize ->
+                        if (fileSize > 0) {
+                            Text(
+                                text = formatFileSizeDownloads(fileSize),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                    Text(
+                        text = "•",
+                        fontSize = 8.sp,
+                        color = MaterialTheme.colorScheme.outline
                     )
-                }
-
-                // Delete button
-                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Sil",
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(20.dp)
+                    Text(
+                        text = getRelativeTimeDownloads(download.completedAt ?: download.createdAt),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
             }
         }
+        IconButton(
+            onClick = { if (isFailed) onDeleteClick() else onMoreClick() },
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = if (isFailed) Icons.Outlined.Delete else Icons.Outlined.MoreVert,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 84.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+    )
+}
+
+@Composable
+private fun DownloadsEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .background(Primary.copy(alpha = 0.1f), RoundedCornerShape(20.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Outlined.FolderOpen,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = Primary
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = "Henüz indirme yok",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "İndirdiğiniz videolar burada görünecek",
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.outline
+        )
     }
 }
+
 
 @Composable
 private fun DownloadInfoDialog(download: DownloadEntity, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                // Header
+            Column(Modifier.padding(20.dp)) {
                 Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                            "Video Detayları",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                        text = "Video Detayları",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                    IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Kapat")
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Kapat")
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Thumbnail
-                download.thumbnail?.let { thumb ->
+                Spacer(Modifier.height(16.dp))
+                download.thumbnail?.let { thumbnail ->
                     AsyncImage(
-                            model = thumb,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier =
-                                    Modifier.fillMaxWidth()
-                                            .height(150.dp)
-                                            .clip(RoundedCornerShape(8.dp))
+                        model = thumbnail,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(Modifier.height(16.dp))
                 }
-
-                // Title
                 Text(
-                        download.title,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
+                    text = download.title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Details
-                InfoRow("Yükleyen", download.uploader ?: "Bilinmiyor")
-                InfoRow("Süre", download.formattedDuration.ifEmpty { "Bilinmiyor" })
-                InfoRow("Format", download.format.uppercase())
-                InfoRow("Kalite", download.quality.uppercase())
-                InfoRow("Boyut", download.fileSize?.let { formatFileSize(it) } ?: "Bilinmiyor")
-                InfoRow(
-                        "Durum",
-                        when {
-                            download.isCompleted -> "✅ Tamamlandı"
-                            download.isDownloading -> "⏳ İndiriliyor"
-                            download.isFailed -> "❌ Başarısız"
-                            else -> "⏸ Bekliyor"
-                        }
+                Spacer(Modifier.height(16.dp))
+                DownloadInfoRow("Yükleyen", download.uploader ?: "Bilinmiyor")
+                DownloadInfoRow("Süre", download.formattedDuration.ifEmpty { "Bilinmiyor" })
+                DownloadInfoRow("Format", download.format.uppercase())
+                DownloadInfoRow("Kalite", download.quality.uppercase())
+                DownloadInfoRow("Boyut", download.fileSize?.let { formatFileSizeDownloads(it) } ?: "Bilinmiyor")
+                DownloadInfoRow(
+                    "Durum",
+                    when {
+                        download.isCompleted -> "✅ Tamamlandı"
+                        download.isDownloading -> "⏳ İndiriliyor"
+                        download.isFailed -> "❌ Başarısız"
+                        else -> "⏸ Bekliyor"
+                    }
                 )
-                InfoRow("İndirilme Tarihi", formatDate(download.createdAt))
-                download.completedAt?.let { InfoRow("Tamamlanma Tarihi", formatDate(it)) }
-                download.filePath?.let { path ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                            "Dosya Yolu:",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.outline
-                    )
-                    Text(
-                            path,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                    )
+                DownloadInfoRow("İndirilme Tarihi", formatDateDownloads(download.createdAt))
+                download.completedAt?.let { completedAt ->
+                    DownloadInfoRow("Tamamlanma Tarihi", formatDateDownloads(completedAt))
                 }
 
-                // Video file metadata (outside the let block to avoid type inference issues)
-                val filePath = download.filePath
-                if (filePath != null) {
-                    val videoMetadata =
-                            remember(filePath) { VideoMetadataExtractor.extractMetadata(filePath) }
-                    if (videoMetadata != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                download.filePath?.let { path ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Dosya Yolu:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Text(
+                        text = path,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-                        // Section header
+                    val metadata = remember(path) { VideoMetadataExtractor.extractMetadata(path) }
+                    metadata?.let { meta ->
+                        Spacer(Modifier.height(16.dp))
                         Text(
-                                "📹 Video Teknik Bilgileri",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Primary
+                            text = "📹 Video Teknik Bilgileri",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Primary
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        InfoRow("Çözünürlük", videoMetadata.resolution)
-                        // FPS: try metadata first, fallback to quality string (e.g., "1080p60")
-                        val fpsDisplay =
-                                if (videoMetadata.frameRate != null && videoMetadata.frameRate > 0
-                                ) {
-                                    videoMetadata.formattedFps
-                                } else {
-                                    // Parse fps from quality string like "1080p60"
-                                    val fpsMatch = Regex("(\\d+)p(\\d+)").find(download.quality)
-                                    if (fpsMatch != null) {
-                                        "${fpsMatch.groupValues[2]} fps"
-                                    } else {
-                                        // Don't assume 30fps - video could be 60fps
-                                        "Bilinmiyor"
-                                    }
-                                }
-                        InfoRow("Kare Hızı (FPS)", fpsDisplay)
-                        InfoRow("Bit Hızı", videoMetadata.formattedBitrate)
-                        videoMetadata.mimeType?.let { mime -> InfoRow("MIME Tipi", mime) }
-                        if (videoMetadata.rotation != null && videoMetadata.rotation != 0) {
-                            InfoRow("Döndürme", "${videoMetadata.rotation}°")
+                        Spacer(Modifier.height(8.dp))
+                        DownloadInfoRow("Çözünürlük", meta.resolution)
+                        val fpsValue = if (meta.frameRate != null && meta.frameRate > 0) {
+                            meta.formattedFps
+                        } else {
+                            Regex("(\\d+)p(\\d+)").find(download.quality)?.let { matchResult ->
+                                "${matchResult.groupValues[2]} fps"
+                            } ?: "Bilinmiyor"
                         }
-                        InfoRow("Gerçek Dosya Boyutu", videoMetadata.formattedFileSize)
+                        DownloadInfoRow("Kare Hızı (FPS)", fpsValue)
+                        DownloadInfoRow("Bit Hızı", meta.formattedBitrate)
+                        meta.mimeType?.let { mimeType ->
+                            DownloadInfoRow("MIME Tipi", mimeType)
+                        }
+                        if (meta.rotation != null && meta.rotation != 0) {
+                            DownloadInfoRow("Döndürme", "${meta.rotation}°")
+                        }
+                        DownloadInfoRow("Gerçek Dosya Boyutu", meta.formattedFileSize)
                     }
                 }
-
-                // Error message if failed
-                download.errorMessage?.let { error ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Hata: $error", fontSize = 12.sp, color = Color.Red)
+                download.errorMessage?.let { errorMessage ->
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Hata: $errorMessage",
+                        fontSize = 12.sp,
+                        color = Color.Red
+                    )
                 }
             }
         }
@@ -501,31 +699,23 @@ private fun DownloadInfoDialog(download: DownloadEntity, onDismiss: () -> Unit) 
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
+private fun DownloadInfoRow(label: String, value: String) {
     Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
         Text(
-                value,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
+            text = label,
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
-}
-
-private fun formatFileSize(bytes: Long): String {
-    return when {
-        bytes >= 1_073_741_824 -> String.format(Locale.US, "%.2f GB", bytes / 1_073_741_824.0)
-        bytes >= 1_048_576 -> String.format(Locale.US, "%.1f MB", bytes / 1_048_576.0)
-        bytes >= 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
-        else -> "$bytes B"
-    }
-}
-
-private fun formatDate(timestamp: Long): String {
-    val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("tr", "TR"))
-    return sdf.format(Date(timestamp))
 }

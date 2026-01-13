@@ -14,8 +14,8 @@ import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
     primary = Primary,
-    secondary = Anthracite,
-    tertiary = PrimaryVariant,
+    secondary = PrimaryDark,
+    tertiary = Primary,
     background = BackgroundDark,
     surface = SurfaceDark,
     onPrimary = Color.White,
@@ -24,13 +24,14 @@ private val DarkColorScheme = darkColorScheme(
     onBackground = TextMainDark,
     onSurface = TextMainDark,
     surfaceVariant = CardDark,
-    outline = TextSecondaryDark
+    outline = TextSecondaryDark,
+    outlineVariant = BorderDark
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = Primary,
-    secondary = Anthracite,
-    tertiary = PrimaryVariant,
+    secondary = PrimaryDark,
+    tertiary = Primary,
     background = BackgroundLight,
     surface = SurfaceLight,
     onPrimary = Color.White,
@@ -39,7 +40,8 @@ private val LightColorScheme = lightColorScheme(
     onBackground = TextMainLight,
     onSurface = TextMainLight,
     surfaceVariant = CardLight,
-    outline = TextSecondaryLight
+    outline = TextSecondaryLight,
+    outlineVariant = BorderLight
 )
 
 @Composable
@@ -47,17 +49,14 @@ fun MediaGrabTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = Anthracite.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+            window.statusBarColor = if (darkTheme) BackgroundDark.toArgb() else BackgroundLight.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 
