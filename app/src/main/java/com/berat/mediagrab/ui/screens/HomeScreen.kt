@@ -160,7 +160,7 @@ private fun HomeHeader(
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
-                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
                         contentDescription = null,
                         modifier = Modifier.size(32.dp)
                     )
