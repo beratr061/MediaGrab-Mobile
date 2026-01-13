@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary brand color -->
+    <color name="primary">#D9263E</color>
+    <color name="primary_variant">#B01E33</color>
+    
+    <!-- Anthracite -->
+    <color name="anthracite">#202124</color>
+    
+    <!-- Light mode colors -->
+    <color name="background_light">#FFFFFF</color>
+    <color name="surface_light">#F4F4F5</color>
+    <color name="text_main_light">#333333</color>
+    <color name="text_secondary_light">#6B7280</color>
+    
+    <!-- Dark mode colors -->
+    <color name="background_dark">#121212</color>
+    <color name="surface_dark">#1E1E1E</color>
+    <color name="text_main_dark">#E5E5E5</color>
+    <color name="text_secondary_dark">#9CA3AF</color>
+    
+    <!-- Platform colors -->
+    <color name="youtube">#FF0000</color>
+    <color name="instagram">#E4405F</color>
+    <color name="tiktok">#000000</color>
+    <color name="twitter">#1DA1F2</color>
+    <color name="facebook">#1877F2</color>
+</resources>
