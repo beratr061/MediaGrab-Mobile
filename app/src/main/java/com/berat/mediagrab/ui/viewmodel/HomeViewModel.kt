@@ -228,6 +228,7 @@ constructor(
                                                                 ?.groupValues
                                                                 ?.get(1)
                                                                 ?.toIntOrNull()
+                                                @Suppress("UNUSED_VARIABLE")
                                                 val targetFps =
                                                         qualityMatch
                                                                 ?.groupValues
@@ -256,8 +257,7 @@ constructor(
                                                                 !format.startsWith("video-only")
 
                                                 // Result variable for download
-                                                var downloadResult: Result<String> =
-                                                        Result.failure(Exception("Not started"))
+                                                var downloadResult: Result<String>
 
                                                 if (isVideoFormat && useHybridDownload) {
                                                         // === HYBRID DOWNLOAD STRATEGY ===
@@ -539,7 +539,7 @@ constructor(
                                                                         url = url,
                                                                         outputPath = videoPath,
                                                                         format = videoFormat
-                                                                ) { progress, _, _, speed ->
+                                                                ) { progress, _, _, _ ->
                                                                         viewModelScope.launch(
                                                                                 kotlinx.coroutines
                                                                                         .Dispatchers
@@ -580,7 +580,7 @@ constructor(
                                                                                         audioPath,
                                                                                 format =
                                                                                         "ba[ext=m4a][abr>=192]/ba[ext=m4a]/ba[abr>=192]/ba"
-                                                                        ) { progress, _, _, speed ->
+                                                                        ) { progress, _, _, _ ->
                                                                                 viewModelScope
                                                                                         .launch(
                                                                                                 kotlinx.coroutines
