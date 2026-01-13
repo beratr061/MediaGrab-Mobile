@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/beratbrok/MediaGrab/releases/latest">
-    <img src="https://img.shields.io/github/v/release/beratbrok/MediaGrab?style=for-the-badge" alt="Latest Release"/>
+  <a href="https://github.com/beratr061/MediaGrab-Mobile/releases/latest">
+    <img src="https://img.shields.io/github/v/release/beratr061/MediaGrab-Mobile?style=for-the-badge" alt="Latest Release"/>
   </a>
-  <a href="https://github.com/beratbrok/MediaGrab/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/beratbrok/MediaGrab/build.yml?style=for-the-badge" alt="Build Status"/>
+  <a href="https://github.com/beratr061/MediaGrab-Mobile/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/beratr061/MediaGrab-Mobile/build.yml?style=for-the-badge" alt="Build Status"/>
   </a>
 </p>
 
@@ -55,7 +55,7 @@
 
 ## 📥 Kurulum
 
-1. [Releases](https://github.com/beratbrok/MediaGrab/releases) sayfasından en son APK'yı indirin
+1. [Releases](https://github.com/beratr061/MediaGrab-Mobile/releases) sayfasından en son APK'yı indirin
 2. APK dosyasını telefonunuzda açın
 3. "Bilinmeyen kaynaklardan yükleme" izni verin
 4. Uygulamayı yükleyin
@@ -66,8 +66,8 @@
 
 ```bash
 # Repoyu klonlayın
-git clone https://github.com/beratbrok/MediaGrab.git
-cd MediaGrab
+git clone https://github.com/beratr061/MediaGrab-Mobile.git
+cd MediaGrab-Mobile
 
 # Debug APK derleyin
 ./gradlew assembleDebug
@@ -99,5 +99,5 @@ Bu proje MIT lisansı altında lisanslanmıştır.
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/beratbrok">Berat</a>
+  Made with ❤️ by <a href="https://github.com/beratr061">Berat</a>
 </p>
